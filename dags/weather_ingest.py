@@ -1,8 +1,10 @@
-"""Daily weather ingestion: Open-Meteo API -> Postgres warehouse (raw schema).
+"""Weather ELT pipeline: Open-Meteo API -> raw schema -> dbt (staging, marts, tests).
 
-For each run, Airflow passes the logical date (ds). The DAG fetches that day's
-weather for each city and upserts it into raw.weather_daily, so re-running a
-day never creates duplicates (idempotent).
+Each daily run:
+  1. create_raw_table : make sure raw.weather_daily exists
+  2. extract_and_load : fetch the run's day for each city and upsert it (idempotent)
+  3. dbt_run          : build staging and mart models
+  4. dbt_test         : run the data tests
 """
 from __future__ import annotations
 
@@ -11,6 +13,7 @@ from datetime import datetime, timedelta
 
 import requests
 from airflow.decorators import dag, task
+from airflow.operators.bash import BashOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -19,6 +22,10 @@ log = logging.getLogger(__name__)
 
 API_URL = "https://api.open-meteo.com/v1/forecast"
 CONN_ID = "warehouse_db"  # defined in docker-compose via AIRFLOW_CONN_WAREHOUSE_DB
+
+# dbt is installed in its own virtual environment; the project is mounted at /opt/airflow/dbt.
+# Warehouse credentials reach dbt through environment variables (see dbt/profiles.yml).
+DBT_CMD = "cd /opt/airflow/dbt && /home/airflow/dbt_venv/bin/dbt"
 
 # city: (latitude, longitude)
 CITIES = {
@@ -75,6 +82,8 @@ ON CONFLICT (city, weather_date) DO UPDATE SET
     weather_code       = EXCLUDED.weather_code,
     loaded_at          = now();
 """
+
+
 def build_session() -> requests.Session:
     """HTTP session that retries temporary API errors with a growing wait."""
     retry = Retry(
@@ -86,9 +95,10 @@ def build_session() -> requests.Session:
     session.mount("https://", HTTPAdapter(max_retries=retry))
     return session
 
+
 @dag(
     dag_id="weather_raw_ingest",
-    description="Load daily weather for Indian cities from Open-Meteo into raw.weather_daily",
+    description="Daily weather ELT: Open-Meteo -> raw.weather_daily -> dbt staging/marts + tests",
     schedule="@daily",
     start_date=datetime(2026, 10, 12),  # keep within the last ~90 days (API limit)
     catchup=True,
@@ -98,7 +108,7 @@ def build_session() -> requests.Session:
         "retries": 2,
         "retry_delay": timedelta(minutes=5),
     },
-    tags=["weather", "raw", "ingestion"],
+    tags=["weather", "elt", "dbt"],
 )
 def weather_raw_ingest():
     @task
@@ -109,8 +119,8 @@ def weather_raw_ingest():
     def extract_and_load(ds: str | None = None) -> int:
         """Fetch one day of weather per city and upsert it into the raw table."""
         hook = PostgresHook(postgres_conn_id=CONN_ID)
-        loaded = 0
         session = build_session()
+        loaded = 0
 
         for city, (lat, lon) in CITIES.items():
             params = {
@@ -149,7 +159,10 @@ def weather_raw_ingest():
         log.info("Run complete: %s cities loaded for %s", loaded, ds)
         return loaded
 
-    create_raw_table() >> extract_and_load()
+    dbt_run = BashOperator(task_id="dbt_run", bash_command=f"{DBT_CMD} run")
+    dbt_test = BashOperator(task_id="dbt_test", bash_command=f"{DBT_CMD} test")
+
+    create_raw_table() >> extract_and_load() >> dbt_run >> dbt_test
 
 
 weather_raw_ingest()
