@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: pip install ruff "dbt-postgres~=1.9.0"
+
+      - name: Lint the DAG
+        run: ruff check dags/
+
+      - name: Validate the dbt project (parse only, no database needed)
+        working-directory: dbt
+        env:
+          DBT_PROFILES_DIR: .
+          WAREHOUSE_USER: ci
+          WAREHOUSE_PASSWORD: ci
+          WAREHOUSE_DB: ci
+        run: dbt parse
