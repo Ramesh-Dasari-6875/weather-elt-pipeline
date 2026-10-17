@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: fct_weather_daily
+    description: Daily weather facts, one row per city per day.
+    columns:
+      - name: weather_key
+        data_tests:
+          - unique
+          - not_null
+      - name: is_rainy_day
+        data_tests:
+          - not_null
+
+  - name: city_weather_summary
+    description: Per-city weather summary for dashboards.
+    columns:
+      - name: city
+        data_tests:
+          - unique
+          - not_null

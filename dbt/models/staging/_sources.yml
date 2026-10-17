@@ -1,0 +1,16 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: Data exactly as loaded from the Open-Meteo API by Airflow.
+    tables:
+      - name: weather_daily
+        description: One row per city per day.
+        columns:
+          - name: city
+            data_tests:
+              - not_null
+          - name: weather_date
+            data_tests:
+              - not_null

@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: stg_weather_daily
+    description: Cleaned daily weather, one row per city per day.
+    columns:
+      - name: weather_key
+        description: Unique key (city and date).
+        data_tests:
+          - unique
+          - not_null
+      - name: city
+        data_tests:
+          - not_null
+      - name: weather_date
+        data_tests:
+          - not_null
+      - name: temp_mean_c
+        data_tests:
+          - not_null

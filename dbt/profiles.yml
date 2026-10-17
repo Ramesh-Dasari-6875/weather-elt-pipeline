@@ -1,0 +1,14 @@
+# Credentials come from environment variables (set in docker-compose from your .env),
+# so no passwords are stored in the repo.
+weather_elt:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: warehouse
+      port: 5432
+      user: "{{ env_var('WAREHOUSE_USER') }}"
+      password: "{{ env_var('WAREHOUSE_PASSWORD') }}"
+      dbname: "{{ env_var('WAREHOUSE_DB') }}"
+      schema: staging
+      threads: 2
